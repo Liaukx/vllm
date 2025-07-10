@@ -55,6 +55,7 @@ from .utils import (AutoWeightsLoader, PPMissingLayer, extract_layer_index,
                     make_empty_intermediate_tensors_factory, make_layers,
                     maybe_prefix)
 
+import torch.cuda.nvtx as nvtx
 
 class LlamaMLP(nn.Module):
 
@@ -578,6 +579,7 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, IntermediateTensors]:
+        print("==============num_tokens:==========",input_ids.shape[0])
         model_output = self.model(input_ids, positions, intermediate_tensors,
                                   inputs_embeds)
         return model_output

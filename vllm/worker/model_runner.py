@@ -62,6 +62,8 @@ from vllm.worker.model_runner_base import (
     _init_attn_metadata_from_tensor_dict,
     _init_sampling_metadata_from_tensor_dict)
 
+import torch.cuda.nvtx as nvtx
+
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 
@@ -1788,6 +1790,8 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         virtual_engine = model_input.virtual_engine
         previous_hidden_states = kwargs.get("previous_hidden_states")
         if prefill_meta is None and decode_meta.use_cuda_graph:
+            print("********** Decode phase **********")
+            nvtx.range_push("decode_phase")
             assert model_input.input_tokens is not None
             graph_batch_size = model_input.input_tokens.shape[0]
             use_inputs_embeds = model_input.inputs_embeds is not None
@@ -1803,8 +1807,12 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                                 dtype=previous_hidden_states.dtype,
                                 device=previous_hidden_states.device)
                 ])
+            nvtx.range_pop()
         else:
+            print("********** Prefil phase **********")
+            nvtx.range_push("prefill_phase")
             model_executable = self.model
+            nvtx.range_pop()
 
         # Receive KV cache in distributed KV cache transfer setting
         # In disagg prefill setting, it will also recv hidden states and bypass

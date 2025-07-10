@@ -44,6 +44,18 @@ from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
 from vllm.v1.structured_output import StructuredOutputManager
 from vllm.version import __version__ as VLLM_VERSION
 
+import torch.cuda.nvtx as nvtx
+from contextlib import contextmanager
+
+@contextmanager
+def nvtx_range(name):
+    nvtx.range_push(name)
+    try:
+        yield
+    finally:
+        nvtx.range_pop()
+
+
 logger = init_logger(__name__)
 
 POLLING_TIMEOUT_S = 2.5
@@ -209,7 +221,26 @@ class EngineCore:
 
     def execute_model(self, scheduler_output: SchedulerOutput):
         try:
-            return self.model_executor.execute_model(scheduler_output)
+            # print(f"total_num_scheduled_tokens:{scheduler_output.total_num_scheduled_tokens}")
+            # print(scheduler_output.num_scheduled_tokens)
+            mode = ""
+            num_scheduled_tokens = scheduler_output.num_scheduled_tokens
+            total_tokens = scheduler_output.total_num_scheduled_tokens
+
+            if len(num_scheduled_tokens) == total_tokens:
+                mode = f"decode:{total_tokens}"
+            elif 1 in num_scheduled_tokens.values():
+                # 统计 prefill 和 decode 的 token 数
+                prefill_tokens = sum(v for v in num_scheduled_tokens.values() if v != 1)
+                decode_tokens = list(num_scheduled_tokens.values()).count(1)  # decode 的 token 数等于 1 的出现次数
+                mode = f"hybrid:prefill={prefill_tokens},decode={decode_tokens}"
+            else:
+                mode = f"prefill:{total_tokens}"
+            
+            with nvtx_range(mode):
+                return self.model_executor.execute_model(scheduler_output)
+
+            # return self.model_executor.execute_model(scheduler_output)
         except Exception as err:
             # We do not want to catch BaseException here since we're only
             # interested in dumping info when the exception is due to an
