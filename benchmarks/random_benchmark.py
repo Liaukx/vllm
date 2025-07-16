@@ -161,20 +161,61 @@ def get_requests(args, tokenizer):
         "output_len": args.output_len,
     }
 
-    sample_kwargs["range_ratio"] = args.random_range_ratio
+    # sample_kwargs["range_ratio"] = args.random_range_ratio
 
+    # vocab = tokenizer.get_vocab()
+    # special_tokens = tokenizer.special_tokens_map
+    # requests = []
+    # while len(requests) < args.num_prompts:
+    #     request = []
+    #     while len(request) + 2 < args.input_len:
+    #         token = random.choice(list(vocab.keys()))
+    #         if token not in special_tokens.values():
+    #             token_id = tokenizer.convert_tokens_to_ids(token)
+    #             request.append(token_id)
+    #     request.insert(0, tokenizer.bos_token_id)
+    #     request.append(tokenizer.eos_token_id)
+    #     requests.append(request)
+    # return requests
     vocab = tokenizer.get_vocab()
+    vocab_size = tokenizer.vocab_size  # 获取实际词汇表大小
     special_tokens = tokenizer.special_tokens_map
+
+    # 验证特殊 token 的 ID 有效性
+    def validate_token_id(token_name):
+        token_id = getattr(tokenizer, f"{token_name}_token_id", None)
+        if token_id is None or token_id >= vocab_size or token_id < 0:
+            raise ValueError(
+                f"Invalid {token_name}_token_id: {token_id}. "
+                f"Must be in range [0, {vocab_size-1}]"
+            )
+        return token_id
+
+    bos_token_id = validate_token_id("bos")
+    eos_token_id = validate_token_id("eos")
+
     requests = []
+    valid_tokens = [
+        token for token in vocab.keys() 
+        if token not in special_tokens.values()
+    ]
+
     while len(requests) < args.num_prompts:
         request = []
         while len(request) + 2 < args.input_len:
-            token = random.choice(list(vocab.keys()))
-            if token not in special_tokens.values():
-                token_id = tokenizer.convert_tokens_to_ids(token)
+            token = random.choice(valid_tokens)
+            token_id = tokenizer.convert_tokens_to_ids(token)
+            
+            # 确保 ID 在有效范围内
+            if 0 <= token_id < vocab_size:
                 request.append(token_id)
-        request.insert(0, tokenizer.bos_token_id)
-        request.append(tokenizer.eos_token_id)
+            else:
+                # 跳过无效 token
+                continue
+        
+        # 插入已验证的特殊 token
+        request.insert(0, bos_token_id)
+        request.append(eos_token_id)
         requests.append(request)
     return requests
     

@@ -54,7 +54,6 @@ from .utils import (AutoWeightsLoader, PPMissingLayer, extract_layer_index,
                     is_pp_missing_parameter,
                     make_empty_intermediate_tensors_factory, make_layers,
                     maybe_prefix)
-
 import torch.cuda.nvtx as nvtx
 
 class LlamaMLP(nn.Module):
@@ -91,9 +90,15 @@ class LlamaMLP(nn.Module):
         self.act_fn = SiluAndMul()
 
     def forward(self, x):
+        nvtx.range_push("FFN.gate_up_proj")
         x, _ = self.gate_up_proj(x)
+        nvtx.range_pop()
+        nvtx.range_push("FFN.act_fn")
         x = self.act_fn(x)
+        nvtx.range_pop()
+        nvtx.range_push("FFN.down_proj")
         x, _ = self.down_proj(x)
+        nvtx.range_pop()
         return x
 
 
@@ -198,11 +203,21 @@ class LlamaAttention(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
+        nvtx.range_push("MHA.qkv_proj")
         qkv, _ = self.qkv_proj(hidden_states)
+        nvtx.range_pop()
+        nvtx.range_push("MHA.Split QKV")
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        nvtx.range_pop()
+        nvtx.range_push("MHA.RoPE")
         q, k = self.rotary_emb(positions, q, k)
+        nvtx.range_pop()
+        nvtx.range_push("MHA.attn")
         attn_output = self.attn(q, k, v)
+        nvtx.range_pop()
+        nvtx.range_push("MHA.o_proj")
         output, _ = self.o_proj(attn_output)
+        nvtx.range_pop()
         return output
 
     def _init_rotary_emb(self, config: LlamaConfig,
@@ -297,6 +312,7 @@ class LlamaDecoderLayer(nn.Module):
         residual: Optional[torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Self Attention
+        nvtx.range_push("MHA")
         if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
@@ -305,11 +321,13 @@ class LlamaDecoderLayer(nn.Module):
                 hidden_states, residual)
         hidden_states = self.self_attn(positions=positions,
                                        hidden_states=hidden_states)
-
+        nvtx.range_pop()
         # Fully Connected
+        nvtx.range_push("FFN")
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
+        nvtx.range_pop()
         return hidden_states, residual
 
 
@@ -390,7 +408,9 @@ class LlamaModel(nn.Module):
                 self.layers[self.start_layer:self.end_layer]):
             if idx in self.aux_hidden_state_layers:
                 aux_hidden_states.append(hidden_states + residual)
+            nvtx.range_push(f"layer_{idx}")
             hidden_states, residual = layer(positions, hidden_states, residual)
+            nvtx.range_pop()
 
         if not get_pp_group().is_last_rank:
             return IntermediateTensors({
@@ -579,7 +599,6 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, IntermediateTensors]:
-        print("==============num_tokens:==========",input_ids.shape[0])
         model_output = self.model(input_ids, positions, intermediate_tensors,
                                   inputs_embeds)
         return model_output
