@@ -67,6 +67,7 @@ from benchmark_dataset import (
     MTBenchDataset,
     NextEditPredictionDataset,
     RandomDataset,
+    TraceDataset,
     SampleRequest,
     ShareGPTDataset,
     SonnetDataset,
@@ -852,6 +853,9 @@ def main(args: argparse.Namespace):
                 output_len=args.random_output_len,
                 range_ratio=args.random_range_ratio,
             ),
+            "trace": lambda: TraceDataset(
+                random_seed=args.seed, dataset_path=args.dataset_path
+            ).sample(tokenizer=tokenizer, num_requests=args.num_prompts),
         }
 
         try:
@@ -1023,7 +1027,7 @@ def create_argument_parser():
         "--dataset-name",
         type=str,
         default="sharegpt",
-        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "custom"],
+        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "custom", "trace"],
         help="Name of the dataset to benchmark on.",
     )
     parser.add_argument(

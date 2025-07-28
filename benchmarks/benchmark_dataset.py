@@ -185,6 +185,7 @@ class BenchmarkDataset(ABC):
             requests (List[SampleRequest]): The current list of sampled
             requests.  num_requests (int): The target number of requests.
         """
+        print("maybe_oversample_requests called with", len(requests), "requests and target", num_requests)
         if len(requests) < num_requests:
             random.seed(self.random_seed)
             additional = random.choices(requests, k=num_requests - len(requests))
@@ -363,6 +364,61 @@ class RandomDataset(BenchmarkDataset):
                 )
             )
         return requests
+    
+# -----------------------------------------------------------------------------
+# Trace Dataset Implementation (Synthetic Data)
+# -----------------------------------------------------------------------------
+
+
+class TraceDataset(BenchmarkDataset):
+   
+    def __init__(
+        self,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.load_data()
+    
+
+    def load_data(self) -> None:
+        if self.dataset_path is None:
+            raise ValueError("dataset_path must be provided for loading data.")
+        
+        trace_df = pd.read_csv(self.dataset_path)
+        self.input_lens = trace_df['ContextTokens'].tolist()
+        self.output_lens = trace_df['GeneratedTokens'].tolist()
+            
+        random.seed(self.random_seed)
+
+
+    def sample(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        num_requests: int,
+        **kwargs,
+    ) -> list[SampleRequest]:
+        
+  
+        def gen_prompt_ids(length):
+            return [np.random.randint(10, tokenizer.vocab_size) for _ in range(length)]
+
+        # sample num_requests requests
+        sampled_ids = [np.random.randint(0, len(self.input_lens) - 1) for _ in range(num_requests)]
+        sampled_prompt_lens = [self.input_lens[idx] for idx in sampled_ids]
+        sampled_response_lens = [self.output_lens[idx] for idx in sampled_ids]
+        sampled_prompts = list(
+            map(lambda prompt_len: gen_prompt_ids(prompt_len), sampled_prompt_lens)
+        )
+        requests = []
+        for i in range(num_requests):
+            requests.append(
+                SampleRequest(
+                    prompt=sampled_prompts[i],
+                    prompt_len=sampled_prompt_lens[i],
+                    expected_output_len=int(sampled_response_lens[i]),
+                )
+            )
+        return requests
 
 
 # -----------------------------------------------------------------------------
@@ -384,14 +440,28 @@ class ShareGPTDataset(BenchmarkDataset):
         if self.dataset_path is None:
             raise ValueError("dataset_path must be provided for loading data.")
 
-        with open(self.dataset_path, encoding="utf-8") as f:
-            self.data = json.load(f)
-        # Filter entries with at least two conversation turns.
-        self.data = [
-            entry
-            for entry in self.data
-            if "conversations" in entry and len(entry["conversations"]) >= 2
-        ]
+        # with open(self.dataset_path, encoding="utf-8") as f:
+        #     self.data = json.load(f)
+        # # Filter entries with at least two conversation turns.
+        # self.data = [
+        #     entry
+        #     for entry in self.data
+        #     if "conversations" in entry and len(entry["conversations"]) >= 2
+        # ]
+        with open(self.dataset_path) as f:
+            for line in f:
+                data = json.loads(line)
+                if len(data["conversations"]) >= 2:
+                    prompt = data["conversations"][0]["value"]
+                    res = data["conversations"][1]["value"]
+                    self.data.append({
+                        "conversations": [
+                            {"role": "user", "value": prompt},
+                            {"role": "assistant", "value": res}
+                        ]
+                    })
+
+
         random.seed(self.random_seed)
         random.shuffle(self.data)
 
