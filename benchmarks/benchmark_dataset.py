@@ -448,6 +448,7 @@ class ShareGPTDataset(BenchmarkDataset):
         #     for entry in self.data
         #     if "conversations" in entry and len(entry["conversations"]) >= 2
         # ]
+        self.data = []
         with open(self.dataset_path) as f:
             for line in f:
                 data = json.loads(line)
